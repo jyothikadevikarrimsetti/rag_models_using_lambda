@@ -1,0 +1,8 @@
+pymongo
+openai
+tiktoken
+pydantic
+PyPDF2
+boto3
+certifi
+dotenv
