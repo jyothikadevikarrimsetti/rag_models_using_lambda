@@ -118,4 +118,30 @@ def mongodb_vector_search(query_text: str, top_k: int = 3) -> dict:
     "results": docs,
     "count": len(docs)
 }
-    
+
+# ...existing code...
+
+def lambda_handler(event, context):
+    """
+    AWS Lambda handler function.
+    Expects event['query_text'] and optionally event['top_k'].
+    """
+    query_text = event.get('query_text')
+    top_k = event.get('top_k', 3)
+    if not query_text:
+        return {
+            "statusCode": 400,
+            "body": json.dumps({"error": "Missing 'query_text' in event"})
+        }
+    try:
+        result = mongodb_vector_search(query_text, top_k)
+        return {
+            "statusCode": 200,
+            "body": json.dumps(result)
+        }
+    except Exception as e:
+        logging.error(f"Error in lambda_handler: {e}")
+        return {
+            "statusCode": 500,
+            "body": json.dumps({"error": str(e)})
+        }
