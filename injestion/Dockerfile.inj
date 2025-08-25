@@ -1,6 +1,7 @@
 # Use AWS Lambda Python base image
 FROM amazon/aws-lambda-python:3.10
 
+
 # Copy requirements file
 COPY requirements.txt .
 
