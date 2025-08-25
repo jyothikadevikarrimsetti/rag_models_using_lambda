@@ -1,0 +1,5 @@
+dotenv
+numpy
+openai
+tiktoken
+pymongo
