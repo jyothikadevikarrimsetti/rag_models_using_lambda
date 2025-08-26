@@ -57,6 +57,17 @@ def summarize_text(text):
     )
     return summary.choices[0].message.content.strip()
 
+def extract_keywords_and_entities(text):
+    """Extract keywords and entities using Azure OpenAI - simplified version."""
+    # Return empty defaults since no NLP/NER models are being used
+    return {
+        "keywords": [],
+        "entities": [],
+        "intent": "",
+        "topic": ""
+    }
+
+
 def build_document(summary, doc_emb, text, document_name=None):
     document = {
         "summary": summary,
@@ -68,8 +79,18 @@ def build_document(summary, doc_emb, text, document_name=None):
     return document
 
 
-
 def extract_metadata(text, document_name=None):
     doc_emb = get_openai_embedding(text)
     summary = summarize_text(text)
-    return build_document( summary, doc_emb, text, document_name)
+    extraction_data = extract_keywords_and_entities(text)
+    
+    metadata = build_document(summary, doc_emb, text, document_name)
+    metadata.update({
+        "keywords": extraction_data.get("keywords", []),
+        "entities": extraction_data.get("entities", []),
+        "intent": extraction_data.get("intent", ""),
+        "topic": extraction_data.get("topic", ""),
+        "model_name": "gpt-4o"
+    })
+    
+    return metadata

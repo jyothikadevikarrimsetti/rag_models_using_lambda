@@ -16,25 +16,56 @@ from scripts.extract import extract_text_from_pdf
 
 def list_pdfs_in_s3(bucket_name):
 	"""List all PDF files in the given S3 bucket."""
+	import logging
 	s3 = boto3.client('s3')
 	paginator = s3.get_paginator('list_objects_v2')
 	pdf_keys = []
-	for page in paginator.paginate(Bucket=bucket_name):
-		for obj in page.get('Contents', []):
-			key = obj['Key']
-			if key.lower().endswith('.pdf'):
-				pdf_keys.append(key)
-	return pdf_keys
+	
+	try:
+		for page in paginator.paginate(Bucket=bucket_name):
+			for obj in page.get('Contents', []):
+				key = obj['Key']
+				if key.lower().endswith('.pdf'):
+					pdf_keys.append(key)
+					logging.info(f"Found PDF: {key}")
+		
+		logging.info(f"Total PDFs found in {bucket_name}: {len(pdf_keys)}")
+		return pdf_keys
+		
+	except Exception as e:
+		logging.error(f"Error listing PDFs in bucket {bucket_name}: {str(e)}")
+		return []
 
 def extract_text_from_s3_pdf(bucket_name, pdf_key):
 	"""Download a PDF from S3 and extract its text."""
 	import io
+	import logging
 	s3 = boto3.client('s3')
-	response = s3.get_object(Bucket=bucket_name, Key=pdf_key)
-	pdf_bytes = response['Body'].read()
-	pdf_stream = io.BytesIO(pdf_bytes)
-	text = extract_text_from_pdf(pdf_stream)
-	return text
+	
+	try:
+		# Log the attempt
+		logging.info(f"Attempting to fetch PDF: s3://{bucket_name}/{pdf_key}")
+		
+		# Check if object exists first
+		try:
+			s3.head_object(Bucket=bucket_name, Key=pdf_key)
+		except s3.exceptions.NoSuchKey:
+			logging.error(f"PDF file not found: s3://{bucket_name}/{pdf_key}")
+			raise FileNotFoundError(f"PDF file not found: s3://{bucket_name}/{pdf_key}")
+		except Exception as e:
+			logging.error(f"Error checking if file exists: {e}")
+			raise
+		
+		response = s3.get_object(Bucket=bucket_name, Key=pdf_key)
+		pdf_bytes = response['Body'].read()
+		pdf_stream = io.BytesIO(pdf_bytes)
+		text = extract_text_from_pdf(pdf_stream)
+		logging.info(f"Successfully extracted {len(text)} characters from {pdf_key}")
+		return text
+		
+	except Exception as e:
+		logging.error(f"Failed to extract text from {pdf_key}: {str(e)}")
+		raise
 
 def process_all_pdfs_in_s3(bucket_name):
 	"""Find all PDFs in S3, extract and print their text."""
