@@ -13,7 +13,7 @@ import json
 import os
 
 # Load environment variables
-load_dotenv("config/.env")
+load_dotenv("../injestion/config/.env")
 client = AzureOpenAI(
     api_key=os.getenv("AZURE_OPENAI_API_KEY"),
     api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
@@ -51,12 +51,16 @@ def mongodb_vector_search_new_structure(query_text: str, top_k: int = 3) -> dict
     from pymongo import MongoClient
     import logging
 
-    # Load environment variables
-    load_dotenv("config/.env")
-    MONGO_URI = os.getenv("MONGO_URI")
-    mongo_client = MongoClient("mongodb+srv://jyothika:Jyothika%40123@cluster.ollkbh1.mongodb.net/?retryWrites=true&w=majority&appName=Cluster")
-    db = mongo_client["rag_db"]
+    # Load environment variables - use correct database name
+    load_dotenv("../injestion/config/.env")
+    MONGO_URI = os.getenv("MONGO_URI").strip('"')
+    DB_NAME = os.getenv("MONGO_DB_NAME", "rag_with_lambda")
+    
+    mongo_client = MongoClient(MONGO_URI)
+    db = mongo_client[DB_NAME]
     chunks_collection = db["chunks"]
+
+    logging.info(f"Searching in database: {DB_NAME}")
 
     # Check if chunks collection has any data
     chunk_count = chunks_collection.count_documents({})
@@ -67,31 +71,37 @@ def mongodb_vector_search_new_structure(query_text: str, top_k: int = 3) -> dict
         return mongodb_vector_search(query_text, top_k)
 
     query_vector = get_openai_embedding(query_text)
+    logging.info(f"Generated query embedding with {len(query_vector)} dimensions")
     
-    # First, let's try a simple find to see what's in the collection
+    # Check collection structure
     sample_chunk = chunks_collection.find_one({})
     if sample_chunk:
-        logging.info(f"Sample chunk keys: {list(sample_chunk.keys())}")
-        if 'embeddings' in sample_chunk:
-            logging.info(f"Embeddings structure: {type(sample_chunk['embeddings'])}")
-            if sample_chunk['embeddings']:
-                logging.info(f"First embedding keys: {list(sample_chunk['embeddings'][0].keys()) if sample_chunk['embeddings'] else 'empty'}")
+        logging.info(f"Sample chunk structure verified")
+        embeddings = sample_chunk.get('embeddings', [])
+        if embeddings and len(embeddings) > 0:
+            vector_length = len(embeddings[0].get('vector', []))
+            logging.info(f"Sample embedding vector length: {vector_length}")
     
-    # Search in chunks collection using vector search
+    # Search in chunks collection using vector search with ObjectId conversion
     pipeline = [
         {
             "$vectorSearch": {
                 "queryVector": query_vector,
                 "path": "embeddings.vector",
                 "numCandidates": 100,
-                "index": "chunks_vector_index",  # New index for chunks collection
+                "index": "vector_index",  # Fixed index name
                 "limit": top_k
+            }
+        },
+        {
+            "$addFields": {
+                "document_object_id": {"$toObjectId": "$document_id"}
             }
         },
         {
             "$lookup": {
                 "from": "documents",
-                "localField": "document_id",
+                "localField": "document_object_id",
                 "foreignField": "_id",
                 "as": "document"
             }
@@ -99,7 +109,7 @@ def mongodb_vector_search_new_structure(query_text: str, top_k: int = 3) -> dict
         {
             "$lookup": {
                 "from": "knowledge_objects",
-                "localField": "document_id", 
+                "localField": "document_object_id", 
                 "foreignField": "document_id",
                 "as": "knowledge"
             }
@@ -109,11 +119,14 @@ def mongodb_vector_search_new_structure(query_text: str, top_k: int = 3) -> dict
                 "_id": 1,
                 "chunk_text": 1,
                 "chunk_index": 1,
+                "start_pos": 1,
+                "end_pos": 1,
                 "document.filename": 1,
                 "document.filepath": 1,
                 "knowledge.summary": 1,
                 "knowledge.keywords": 1,
-                "knowledge.topic": 1
+                "knowledge.topic": 1,
+                "score": {"$meta": "vectorSearchScore"}
             }
         }
     ]
@@ -121,10 +134,40 @@ def mongodb_vector_search_new_structure(query_text: str, top_k: int = 3) -> dict
     try:
         results = list(chunks_collection.aggregate(pipeline))
         logging.info(f"Vector search returned {len(results)} results")
+        
+        for i, result in enumerate(results):
+            score = result.get('score', 0)
+            logging.info(f"Result {i+1}: score={score:.4f}")
+            
     except Exception as e:
         logging.error(f"Vector search failed: {e}")
-        logging.info("Falling back to legacy search")
-        return mongodb_vector_search(query_text, top_k)
+        
+        # Fallback: simple text search if vector search fails
+        logging.info("Falling back to text search")
+        text_results = chunks_collection.find({
+            "chunk_text": {"$regex": query_text, "$options": "i"}
+        }).limit(top_k)
+        
+        results = []
+        for chunk in text_results:
+            # Get document info - convert string ID to ObjectId
+            from bson import ObjectId
+            try:
+                document_oid = ObjectId(chunk["document_id"])
+                document = db["documents"].find_one({"_id": document_oid})
+                knowledge = db["knowledge_objects"].find_one({"document_id": document_oid})
+            except:
+                document = None
+                knowledge = None
+            
+            results.append({
+                "_id": chunk["_id"],
+                "chunk_text": chunk["chunk_text"],
+                "chunk_index": chunk["chunk_index"],
+                "document": [document] if document else [],
+                "knowledge": [knowledge] if knowledge else [],
+                "score": 0.5  # Default score for text search
+            })
     
     docs = []
     
@@ -136,34 +179,45 @@ def mongodb_vector_search_new_structure(query_text: str, top_k: int = 3) -> dict
             "_id": str(doc.get("_id", "")),
             "chunk_text": doc.get("chunk_text", ""),
             "chunk_index": doc.get("chunk_index", 0),
-            "filename": document_info.get("filename", ""),
+            "filename": document_info.get("filename", "Unknown"),
             "filepath": document_info.get("filepath", ""),
             "summary": knowledge_info.get("summary", ""),
             "keywords": knowledge_info.get("keywords", []),
-            "topic": knowledge_info.get("topic", "")
+            "topic": knowledge_info.get("topic", ""),
+            "score": doc.get("score", 0)
         })
 
     # Prepare context for LLM answer
     if docs:
         context = "\n\n".join([
-            f"Document: {doc['filename']}\nSummary: {doc['summary']}\nChunk: {doc['chunk_text'][:200]}..." 
-            for doc in docs[:min(3, len(docs))]
+            f"Document: {doc['filename']}\n"
+            f"Summary: {doc['summary']}\n"
+            f"Content: {doc['chunk_text'][:300]}..." 
+            for doc in docs[:3]  # Use top 3 results
         ])
-        prompt = f"You are an expert assistant. Use the following context to answer the user's question.\n\nContext:\n{context}\n\nQuestion: {query_text}\n\nAnswer in detail:"
+        
+        prompt = f"""You are an expert assistant. Use the following context to answer the user's question.
+
+Context:
+{context}
+
+Question: {query_text}
+
+Answer in detail based on the provided context:"""
         
         try:          
             answer = client.chat.completions.create(
                 model=deployment,
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.2,
-                max_tokens=256,
-                timeout=20
+                max_tokens=512,
+                timeout=30
             ).choices[0].message.content.strip()
         except Exception as e:
             logging.error(f"OpenAI completion error: {e}")
-            answer = "LLM completion error."
+            answer = "Error generating answer from LLM."
     else:
-        answer = "No relevant document found."
+        answer = "No relevant documents found for your query."
     
     return {
         "answer": answer,
@@ -181,7 +235,7 @@ def mongodb_vector_search(query_text: str, top_k: int = 3) -> dict:
     import logging
 
     # Load environment variables
-    load_dotenv("config/.env")
+    load_dotenv("../injestion/config/.env")
     MONGO_URI = os.getenv("MONGO_URI")
     mongo_client = MongoClient("mongodb+srv://jyothika:Jyothika%40123@cluster.ollkbh1.mongodb.net/?retryWrites=true&w=majority&appName=Cluster")
     db = mongo_client["rag_db"]
@@ -252,7 +306,8 @@ def lambda_handler(event, context):
         body = event
     query_text = body.get('query_text')
     top_k = body.get('top_k', 3)
-    use_new_structure = body.get('use_new_structure', False)
+    use_new_structure = os.getenv("USE_NEW_DATA_STRUCTURE", "false").lower() == "true"
+
     
     logging.info(f"Query: {query_text}")
     logging.info(f"Top K: {top_k}")
