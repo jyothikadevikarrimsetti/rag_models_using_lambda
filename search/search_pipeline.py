@@ -205,7 +205,7 @@ Question: {query_text}
 
 Answer in detail based on the provided context:"""
         
-        try:          
+        try:
             answer = client.chat.completions.create(
                 model=deployment,
                 messages=[{"role": "user", "content": prompt}],
