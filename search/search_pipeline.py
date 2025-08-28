@@ -59,6 +59,8 @@ def mongodb_vector_search_new_structure(query_text: str, top_k: int = 3) -> dict
     mongo_client = MongoClient(MONGO_URI)
     db = mongo_client[DB_NAME]
     chunks_collection = db["chunks"]
+    knowledge_objects_collection = db["knowledge_objects"]
+    modules_collection = db["modules"]
 
     logging.info(f"Searching in database: {DB_NAME}")
 
@@ -73,24 +75,32 @@ def mongodb_vector_search_new_structure(query_text: str, top_k: int = 3) -> dict
     query_vector = get_openai_embedding(query_text)
     logging.info(f"Generated query embedding with {len(query_vector)} dimensions")
     
-    # Check collection structure
+    # Check collection structure - new schema uses direct embedding in chunks
     sample_chunk = chunks_collection.find_one({})
     if sample_chunk:
         logging.info(f"Sample chunk structure verified")
-        embeddings = sample_chunk.get('embeddings', [])
-        if embeddings and len(embeddings) > 0:
-            vector_length = len(embeddings[0].get('vector', []))
+        embedding = sample_chunk.get('embedding', [])
+        if embedding and len(embedding) > 0:
+            vector_length = len(embedding)
             logging.info(f"Sample embedding vector length: {vector_length}")
     
-    # Search in chunks collection using vector search with ObjectId conversion
+    # Search in chunks collection using vector search - updated for new schema
     pipeline = [
         {
             "$vectorSearch": {
                 "queryVector": query_vector,
-                "path": "embeddings.vector",
+                "path": "embedding",  # Direct embedding path in new schema
                 "numCandidates": 100,
-                "index": "vector_index",  # Fixed index name
+                "index": "vector_index",
                 "limit": top_k
+            }
+        },
+        {
+            "$lookup": {
+                "from": "knowledge_objects",
+                "localField": "document_id",
+                "foreignField": "module_id",  # Both are strings
+                "as": "knowledge"
             }
         },
         {
@@ -100,32 +110,29 @@ def mongodb_vector_search_new_structure(query_text: str, top_k: int = 3) -> dict
         },
         {
             "$lookup": {
-                "from": "documents",
-                "localField": "document_object_id",
-                "foreignField": "_id",
-                "as": "document"
-            }
-        },
-        {
-            "$lookup": {
-                "from": "knowledge_objects",
+                "from": "modules",
                 "localField": "document_object_id", 
-                "foreignField": "document_id",
-                "as": "knowledge"
+                "foreignField": "_id",  # modules._id is ObjectId
+                "as": "module"
             }
         },
         {
             "$project": {
                 "_id": 1,
                 "chunk_text": 1,
-                "chunk_index": 1,
-                "start_pos": 1,
-                "end_pos": 1,
-                "document.filename": 1,
-                "document.filepath": 1,
+                "chunk_id": 1,
+                "chunk_start": 1,
+                "chunk_end": 1,
+                "document_id": 1,
+                "module.module_id": 1,
+                "module.module_tag": 1,
+                "knowledge.title": 1,
                 "knowledge.summary": 1,
                 "knowledge.keywords": 1,
-                "knowledge.topic": 1,
+                "knowledge.content": 1,
+                "knowledge.metadata.path": 1,
+                "knowledge.metadata.intent_category": 1,
+                "knowledge.is_terraform": 1,
                 "score": {"$meta": "vectorSearchScore"}
             }
         }
@@ -150,21 +157,24 @@ def mongodb_vector_search_new_structure(query_text: str, top_k: int = 3) -> dict
         
         results = []
         for chunk in text_results:
-            # Get document info - convert string ID to ObjectId
+            # Get knowledge object info - convert string ID to ObjectId
             from bson import ObjectId
             try:
                 document_oid = ObjectId(chunk["document_id"])
-                document = db["documents"].find_one({"_id": document_oid})
-                knowledge = db["knowledge_objects"].find_one({"document_id": document_oid})
+                knowledge = knowledge_objects_collection.find_one({"module_id": str(document_oid)})
+                module = modules_collection.find_one({"_id": document_oid})
             except:
-                document = None
                 knowledge = None
+                module = None
             
             results.append({
                 "_id": chunk["_id"],
                 "chunk_text": chunk["chunk_text"],
-                "chunk_index": chunk["chunk_index"],
-                "document": [document] if document else [],
+                "chunk_id": chunk.get("chunk_id", 0),
+                "chunk_start": chunk.get("chunk_start", 0),
+                "chunk_end": chunk.get("chunk_end", 0),
+                "document_id": chunk["document_id"],
+                "module": [module] if module else [],
                 "knowledge": [knowledge] if knowledge else [],
                 "score": 0.5  # Default score for text search
             })
@@ -172,18 +182,25 @@ def mongodb_vector_search_new_structure(query_text: str, top_k: int = 3) -> dict
     docs = []
     
     for doc in results:
-        document_info = doc.get("document", [{}])[0] if doc.get("document") else {}
+        module_info = doc.get("module", [{}])[0] if doc.get("module") else {}
         knowledge_info = doc.get("knowledge", [{}])[0] if doc.get("knowledge") else {}
+        metadata = knowledge_info.get("metadata", {}) if knowledge_info else {}
         
         docs.append({
             "_id": str(doc.get("_id", "")),
             "chunk_text": doc.get("chunk_text", ""),
-            "chunk_index": doc.get("chunk_index", 0),
-            "filename": document_info.get("filename", "Unknown"),
-            "filepath": document_info.get("filepath", ""),
+            "chunk_id": doc.get("chunk_id", 0),  # Fixed: use chunk_id from data model
+            "chunk_start": doc.get("chunk_start", 0),
+            "chunk_end": doc.get("chunk_end", 0),
+            "filename": knowledge_info.get("title", "Unknown"),
+            "filepath": metadata.get("path", ""),
             "summary": knowledge_info.get("summary", ""),
-            "keywords": knowledge_info.get("keywords", []),
-            "topic": knowledge_info.get("topic", ""),
+            "keywords": knowledge_info.get("keywords", ""),
+            "content": knowledge_info.get("content", ""),
+            "intent_category": metadata.get("intent_category", ""),
+            "is_terraform": knowledge_info.get("is_terraform", False),
+            "module_id": module_info.get("module_id", ""),
+            "module_tags": module_info.get("module_tag", []),
             "score": doc.get("score", 0)
         })
 

@@ -40,27 +40,39 @@ def extract_text_from_s3_pdf(bucket_name, pdf_key):
 	"""Download a PDF from S3 and extract its text."""
 	import io
 	import logging
+	import urllib.parse
 	s3 = boto3.client('s3')
 	
 	try:
+		# URL decode the pdf_key to handle encoded characters like %2B (plus sign)
+		decoded_pdf_key = urllib.parse.unquote(pdf_key)
+		logging.info(f"Original key: {pdf_key}")
+		logging.info(f"Decoded key: {decoded_pdf_key}")
+		
 		# Log the attempt
-		logging.info(f"Attempting to fetch PDF: s3://{bucket_name}/{pdf_key}")
+		logging.info(f"Attempting to fetch PDF: s3://{bucket_name}/{decoded_pdf_key}")
 		
 		# Check if object exists first
 		try:
-			s3.head_object(Bucket=bucket_name, Key=pdf_key)
+			s3.head_object(Bucket=bucket_name, Key=decoded_pdf_key)
 		except s3.exceptions.NoSuchKey:
-			logging.error(f"PDF file not found: s3://{bucket_name}/{pdf_key}")
-			raise FileNotFoundError(f"PDF file not found: s3://{bucket_name}/{pdf_key}")
+			# Try with original key if decoded key fails
+			logging.info(f"Decoded key not found, trying original key: {pdf_key}")
+			try:
+				s3.head_object(Bucket=bucket_name, Key=pdf_key)
+				decoded_pdf_key = pdf_key  # Use original key if it works
+			except s3.exceptions.NoSuchKey:
+				logging.error(f"PDF file not found with either key: s3://{bucket_name}/{pdf_key}")
+				raise FileNotFoundError(f"PDF file not found: s3://{bucket_name}/{pdf_key}")
 		except Exception as e:
 			logging.error(f"Error checking if file exists: {e}")
 			raise
 		
-		response = s3.get_object(Bucket=bucket_name, Key=pdf_key)
+		response = s3.get_object(Bucket=bucket_name, Key=decoded_pdf_key)
 		pdf_bytes = response['Body'].read()
 		pdf_stream = io.BytesIO(pdf_bytes)
 		text = extract_text_from_pdf(pdf_stream)
-		logging.info(f"Successfully extracted {len(text)} characters from {pdf_key}")
+		logging.info(f"Successfully extracted {len(text)} characters from {decoded_pdf_key}")
 		return text
 		
 	except Exception as e:

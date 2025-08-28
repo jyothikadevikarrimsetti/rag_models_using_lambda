@@ -3,64 +3,82 @@ from typing import List, Optional
 from datetime import datetime
 
 
-class Document(BaseModel):
+class Metadata(BaseModel):
+    path: str
+    repo_url: str
+    intent_category: str
+    version: str
+    modified_time: datetime
+    csp: str
+    
+    class Config:
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
+
+
+class EmbeddingMeta(BaseModel):
+    model_name: str
+    model_version: str
+    dimensionality: int
+    embedding_method: str
+    tokenizer: str
+    embedding_date: datetime
+    source_field: str
+    embedding_quality_score: float
+    reembedding_required: bool
+    
+    class Config:
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
+
+
+class Module(BaseModel):
     id: Optional[str] = Field(None, alias="_id")
-    filename: str
-    filepath: str
-    created_date: datetime = Field(default_factory=datetime.utcnow)
-    modified_date: datetime = Field(default_factory=datetime.utcnow)
+    module_id: str = Field(..., alias="module_id")
+    module_tag: List[str] = Field(default_factory=list, alias="module_tag")
+    module_link: List[str] = Field(default_factory=list, alias="module_link")
+    
+    class Config:
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
 
 
 class KnowledgeObject(BaseModel):
     id: Optional[str] = Field(None, alias="_id")
-    document_id: str
+    title: str
+    named_entity: str
     summary: str
-    keywords: List[str] = Field(default_factory=list)
-    intent: Optional[str] = Field(default="")
-    entities: List[str] = Field(default_factory=list)
-    language: str = "en"
-    topic: Optional[str] = Field(default="")
-    model_name: str
-    created_date: datetime = Field(default_factory=datetime.utcnow)
-    modified_date: datetime = Field(default_factory=datetime.utcnow)
-
-
-class EmbeddingInfo(BaseModel):
-    config_id: str
-    vector: List[float]
-    created_at: datetime = Field(default_factory=datetime.utcnow)
-    meta: dict = {}
+    content: str
+    keywords: str
+    texts: str
+    is_terraform: bool
+    metadata: Metadata
+    module_id: str
+    chunk_ids: List[str] = Field(default_factory=list)
+    
+    class Config:
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
 
 
 class Chunk(BaseModel):
     id: Optional[str] = Field(None, alias="_id")
     document_id: str
+    chunk_id: int
+    chunk_start: int
+    chunk_end: int
     chunk_text: str
-    chunk_index: int
-    start_pos: int
-    end_pos: int
-    embeddings: List[EmbeddingInfo] = []
-
-
-class EmbeddingConfig(BaseModel):
-    id: Optional[str] = Field(None, alias="_id")
-    model_name: str
-    embedding_size: int
-    distance_metric: str = "cosine"
-    is_active: bool = True
-    retraining_start: bool = False
-    retraining_end: bool = False
-    retraining_success: bool = False
-    created_date: datetime = Field(default_factory=datetime.utcnow)
-    modified_date: datetime = Field(default_factory=datetime.utcnow)
-
-
-class Module(BaseModel):
-    id: Optional[str] = Field(None, alias="_id")
-    module_name: str
-    module_type: str
-    created_date: datetime = Field(default_factory=datetime.utcnow)
-    modified_date: datetime = Field(default_factory=datetime.utcnow)
+    embedding: List[float] = Field(default_factory=list)
+    embedding_meta: EmbeddingMeta
+    
+    class Config:
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
 
 
 # Legacy model for backward compatibility
@@ -72,3 +90,8 @@ class VectorDocument(BaseModel):
     summary: str
     text: str
     embedding: List[float]
+    
+    class Config:
+        json_encoders = {
+            datetime: lambda v: v.isoformat()
+        }
