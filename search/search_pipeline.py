@@ -44,7 +44,7 @@ def get_openai_embedding(text, timeout=15):
             logging.error(f"OpenAI embedding call timed out for text: {text[:50]}")
             raise TimeoutError("OpenAI embedding call timed out.")
 
-def mongodb_vector_search_new_structure(query_text: str, top_k: int = 3) -> dict:
+def mongodb_vector_search_new_structure(query_text: str, top_k: int = 3, chat_history: Optional[List[Dict]] = None) -> dict:
     """Search MongoDB Atlas using the new data structure with separate collections."""
     import os
     from dotenv import load_dotenv
@@ -206,21 +206,48 @@ def mongodb_vector_search_new_structure(query_text: str, top_k: int = 3) -> dict
 
     # Prepare context for LLM answer
     if docs:
-        context = "\n\n".join([
+        # Build document context
+        document_context = "\n\n".join([
             f"Document: {doc['filename']}\n"
             f"Summary: {doc['summary']}\n"
             f"Content: {doc['chunk_text'][:300]}..." 
             for doc in docs[:3]  # Use top 3 results
         ])
         
-        prompt = f"""You are an expert assistant. Use the following context to answer the user's question.
+        # Build chat history context if available
+        chat_context = ""
+        if chat_history and len(chat_history) > 0:
+            # Get recent conversation context (last 3 exchanges)
+            recent_messages = chat_history[-6:]  # Last 3 user-assistant pairs
+            chat_exchanges = []
+            
+            for i in range(0, len(recent_messages), 2):
+                if i + 1 < len(recent_messages):
+                    user_msg = recent_messages[i]
+                    assistant_msg = recent_messages[i + 1]
+                    
+                    if user_msg.get('role') == 'user' and assistant_msg.get('role') == 'assistant':
+                        chat_exchanges.append(
+                            f"Previous Q: {user_msg.get('content', '')}\n"
+                            f"Previous A: {assistant_msg.get('content', '')[:150]}..."
+                        )
+            
+            if chat_exchanges:
+                chat_context = f"\n\nConversation History:\n" + "\n\n".join(chat_exchanges[-2:])  # Last 2 exchanges
+        
+        # Combine contexts
+        full_context = f"Relevant Documents:\n{document_context}"
+        if chat_context:
+            full_context += chat_context
+        
+        prompt = f"""You are an expert assistant. Use the following context to answer the user's question. 
+Consider both the relevant documents and the conversation history to provide a comprehensive answer.
 
-Context:
-{context}
+{full_context}
 
-Question: {query_text}
+Current Question: {query_text}
 
-Answer in detail based on the provided context:"""
+Answer in detail based on the provided context. If this question relates to previous conversation, reference that context appropriately:"""
         
         try:
             answer = client.chat.completions.create(
@@ -244,7 +271,7 @@ Answer in detail based on the provided context:"""
     }
 
 
-def mongodb_vector_search(query_text: str, top_k: int = 3) -> dict:
+def mongodb_vector_search(query_text: str, top_k: int = 3, chat_history: Optional[List[Dict]] = None) -> dict:
     """Search MongoDB Atlas for top-k documents using vector similarity (legacy structure)."""
     import os
     from dotenv import load_dotenv
@@ -285,8 +312,35 @@ def mongodb_vector_search(query_text: str, top_k: int = 3) -> dict:
         
     # Prepare context for LLM answer
     if docs:
-        context = "\n\n".join([doc["summary"] for doc in docs[:min(3, len(docs))]])
-        prompt = f"You are an expert assistant. Use the following context to answer the user's question.\n\nContext:\n{context}\n\nQuestion: {query_text}\n\nAnswer in detail:"
+        # Build document context
+        document_context = "\n\n".join([doc["summary"] for doc in docs[:min(3, len(docs))]])
+        
+        # Build chat history context if available
+        chat_context = ""
+        if chat_history and len(chat_history) > 0:
+            recent_messages = chat_history[-6:]  # Last 3 user-assistant pairs
+            chat_exchanges = []
+            
+            for i in range(0, len(recent_messages), 2):
+                if i + 1 < len(recent_messages):
+                    user_msg = recent_messages[i]
+                    assistant_msg = recent_messages[i + 1]
+                    
+                    if user_msg.get('role') == 'user' and assistant_msg.get('role') == 'assistant':
+                        chat_exchanges.append(
+                            f"Previous Q: {user_msg.get('content', '')}\n"
+                            f"Previous A: {assistant_msg.get('content', '')[:150]}..."
+                        )
+            
+            if chat_exchanges:
+                chat_context = f"\n\nConversation History:\n" + "\n\n".join(chat_exchanges[-2:])
+        
+        # Combine contexts
+        full_context = f"Relevant Documents:\n{document_context}"
+        if chat_context:
+            full_context += chat_context
+            
+        prompt = f"You are an expert assistant. Use the following context to answer the user's question. Consider both the relevant documents and the conversation history.\n\n{full_context}\n\nCurrent Question: {query_text}\n\nAnswer in detail:"
         try:
             answer = client.chat.completions.create(
                 model=deployment,
@@ -323,11 +377,13 @@ def lambda_handler(event, context):
         body = event
     query_text = body.get('query_text')
     top_k = body.get('top_k', 3)
+    chat_history = body.get('chat_history', None)  # Optional chat history
     use_new_structure = os.getenv("USE_NEW_DATA_STRUCTURE", "false").lower() == "true"
 
     
     logging.info(f"Query: {query_text}")
     logging.info(f"Top K: {top_k}")
+    logging.info(f"Chat history messages: {len(chat_history) if chat_history else 0}")
     logging.info(f"Use new structure: {use_new_structure}")
     
     if not query_text:
@@ -338,10 +394,10 @@ def lambda_handler(event, context):
     try:
         if use_new_structure:
             logging.info("Using NEW structure for search")
-            result = mongodb_vector_search_new_structure(query_text, top_k)
+            result = mongodb_vector_search_new_structure(query_text, top_k, chat_history)
         else:
             logging.info("Using LEGACY structure for search")
-            result = mongodb_vector_search(query_text, top_k)
+            result = mongodb_vector_search(query_text, top_k, chat_history)
         return {
             "statusCode": 200,
             "body": json.dumps(result)

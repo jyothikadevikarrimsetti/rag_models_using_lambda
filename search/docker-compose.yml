@@ -1,0 +1,52 @@
+# Docker Compose configuration for Vector Search API with Redis
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: vector_search_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      timeout: 3s
+      retries: 5
+    networks:
+      - vector_search_network
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: vector_search_api
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - CHAT_HISTORY_TTL=3600
+      - USE_NEW_DATA_STRUCTURE=true
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./config:/app/config:ro
+    restart: unless-stopped
+    networks:
+      - vector_search_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/"]
+      timeout: 10s
+      retries: 5
+
+volumes:
+  redis_data:
+
+networks:
+  vector_search_network:
+    driver: bridge
