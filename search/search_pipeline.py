@@ -287,7 +287,7 @@ def mongodb_vector_search(query_text: str, top_k: int = 3) -> dict:
     if docs:
         context = "\n\n".join([doc["summary"] for doc in docs[:min(3, len(docs))]])
         prompt = f"You are an expert assistant. Use the following context to answer the user's question.\n\nContext:\n{context}\n\nQuestion: {query_text}\n\nAnswer in detail:"
-        try:          
+        try:
             answer = client.chat.completions.create(
                 model=deployment,
                 messages=[{"role": "user", "content": prompt}],

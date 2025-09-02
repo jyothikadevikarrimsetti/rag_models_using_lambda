@@ -41,17 +41,30 @@ def process_and_store_single_pdf_new_structure(bucket_name, pdf_key, chunk_size=
     )
     
     # 3. Extract and store knowledge object (document-level metadata)
-    from scripts.mongo_docs import summarize_text
+    from scripts.mongo_docs import summarize_text, extract_keywords_and_entities
+    import logging
     
     # Get simple summary for document-level metadata
     document_summary = summarize_text(text[:2000])  # Use first 2000 chars for document summary
+    
+    # Check if metadata extraction is enabled
+    enable_metadata = os.getenv("ENABLE_METADATA_EXTRACTION", "false").lower() == "true"
+    
+    if enable_metadata:
+        logging.info("Metadata extraction enabled - extracting keywords and entities")
+        metadata_extraction = extract_keywords_and_entities(text[:2000])
+        keywords = ", ".join(metadata_extraction.get('keywords', []))
+        logging.info(f"Extracted {len(metadata_extraction.get('keywords', []))} keywords")
+    else:
+        logging.info("Metadata extraction disabled - using empty keywords")
+        keywords = ""
     
     knowledge_obj = KnowledgeObject(
         title=os.path.basename(pdf_key).replace('.pdf', ''),
         named_entity=f"entity_{os.path.basename(pdf_key).replace('.pdf', '')}",
         summary=document_summary,
         content=text[:1000] if len(text) > 1000 else text,  # Store first 1000 chars as content preview
-        keywords="",  # Empty for now
+        keywords=keywords,  # Now populated based on env variable
         texts=text,   # Full text
         is_terraform=False,  # Assume false unless detected
         metadata=metadata,

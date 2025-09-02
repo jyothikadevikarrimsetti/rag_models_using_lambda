@@ -60,6 +60,26 @@ def summarize_text(text):
 def extract_keywords_and_entities(text):
     """Extract keywords and entities using Azure OpenAI - simplified version."""
     # Return empty defaults since no NLP/NER models are being used
+    metadata_available = os.getenv("ENABLE_METADATA_EXTRACTION", "false").lower() == "true"
+    if metadata_available:
+        import requests
+        try:
+            meta_uri = os.getenv("METADATA_EXTRACTION_API")
+            response = requests.post(
+                meta_uri,
+                json={"text": text}
+            )
+            if response.status_code == 200:
+                data = response.json()
+                return {
+                    "keywords": data.get("keywords", []),
+                    "entities": data.get("entities", []),
+                    "intent": data.get("intent", ""),
+                    "topic": data.get("topic", "")
+                }
+        except Exception as e:
+            logging.error(f"Error extracting metadata: {e}")
+
     return {
         "keywords": [],
         "entities": [],
