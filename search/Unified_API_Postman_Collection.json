@@ -1,0 +1,546 @@
+{
+	"info": {
+		"_postman_id": "12345678-1234-1234-1234-123456789012",
+		"name": "Unified Search & Upload API",
+		"description": "Complete test collection for the unified vector search and PDF upload API",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "🔍 Health Checks",
+			"item": [
+				{
+					"name": "Basic Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								""
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "AWS Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/aws-health",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"aws-health"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Detailed Health Check",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/health/detailed",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"health",
+								"detailed"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "🔍 Search & Chat",
+			"item": [
+				{
+					"name": "Basic Vector Search",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"query\": \"What is machine learning?\",\n    \"top_k\": 5\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/search",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"search"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Search with Chat History",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"// Save session_id from response",
+									"if (pm.response.json() && pm.response.json().session_id) {",
+									"    pm.environment.set(\"SESSION_ID\", pm.response.json().session_id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"query\": \"What is artificial intelligence?\",\n    \"session_id\": \"{{SESSION_ID}}\",\n    \"top_k\": 3,\n    \"use_chat_history\": true\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/search",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"search"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Follow-up Question",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"query\": \"How is it different from machine learning?\",\n    \"session_id\": \"{{SESSION_ID}}\",\n    \"top_k\": 3,\n    \"use_chat_history\": true\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/search",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"search"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Chat History",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/chat-history/{{SESSION_ID}}",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"chat-history",
+								"{{SESSION_ID}}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List All Sessions",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/sessions",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"sessions"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Clear Session History",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/clear-history/{{SESSION_ID}}",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"clear-history",
+								"{{SESSION_ID}}"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "📤 Upload & Processing",
+			"item": [
+				{
+					"name": "Upload PDF (with processing)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"// Save request_id from response",
+									"if (pm.response.json() && pm.response.json().request_id) {",
+									"    pm.environment.set(\"REQUEST_ID\", pm.response.json().request_id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": []
+								}
+							]
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/upload?process_immediately=true",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"upload"
+							],
+							"query": [
+								{
+									"key": "process_immediately",
+									"value": "true"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Upload PDF (without processing)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"// Save request_id from response",
+									"if (pm.response.json() && pm.response.json().request_id) {",
+									"    pm.environment.set(\"REQUEST_ID_NO_PROCESS\", pm.response.json().request_id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": []
+								}
+							]
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/upload?process_immediately=false",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"upload"
+							],
+							"query": [
+								{
+									"key": "process_immediately",
+									"value": "false"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Check Upload Status",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/status/{{REQUEST_ID}}",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"status",
+								"{{REQUEST_ID}}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Manually Trigger Lambda",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/trigger-lambda/{{REQUEST_ID_NO_PROCESS}}",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"trigger-lambda",
+								"{{REQUEST_ID_NO_PROCESS}}"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Recent Uploads",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/uploads?limit=10",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"uploads"
+							],
+							"query": [
+								{
+									"key": "limit",
+									"value": "10"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Lambda Logs",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/lambda-logs/{{EXECUTION_ID}}?lines=50",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"lambda-logs",
+								"{{EXECUTION_ID}}"
+							],
+							"query": [
+								{
+									"key": "lines",
+									"value": "50"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List S3 Files",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/s3-files?prefix=uploads/&limit=20",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"s3-files"
+							],
+							"query": [
+								{
+									"key": "prefix",
+									"value": "uploads/"
+								},
+								{
+									"key": "limit",
+									"value": "20"
+								}
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Cleanup Old Uploads",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/cleanup?days=7",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"cleanup"
+							],
+							"query": [
+								{
+									"key": "days",
+									"value": "7"
+								}
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "🧪 Error Testing",
+			"item": [
+				{
+					"name": "Upload Non-PDF File (should fail)",
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "formdata",
+							"formdata": [
+								{
+									"key": "file",
+									"type": "file",
+									"src": []
+								}
+							]
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/upload",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"upload"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Invalid Request ID (should 404)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{BASE_URL}}/status/invalid-request-id",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"status",
+								"invalid-request-id"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Empty Search Query",
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"query\": \"\",\n    \"top_k\": 5\n}"
+						},
+						"url": {
+							"raw": "{{BASE_URL}}/search",
+							"host": [
+								"{{BASE_URL}}"
+							],
+							"path": [
+								"search"
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"event": [
+		{
+			"listen": "prerequest",
+			"script": {
+				"type": "text/javascript",
+				"exec": [
+					"// Auto-generate session ID if not exists",
+					"if (!pm.environment.get(\"SESSION_ID\")) {",
+					"    pm.environment.set(\"SESSION_ID\", \"test_session_\" + Date.now());",
+					"}"
+				]
+			}
+		}
+	],
+	"variable": [
+		{
+			"key": "BASE_URL",
+			"value": "http://localhost:8000",
+			"type": "string"
+		}
+	]
+}
