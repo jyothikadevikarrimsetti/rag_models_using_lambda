@@ -11,7 +11,7 @@ import requests
 import json
 from datetime import datetime
 
-API_BASE_URL = "http://localhost:8000"
+API_BASE_URL = "http://localhost:8000/api"
 
 def test_api_health():
     """Test basic API health endpoints"""

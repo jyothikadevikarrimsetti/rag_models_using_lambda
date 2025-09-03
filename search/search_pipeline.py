@@ -14,23 +14,39 @@ import os
 
 # Load environment variables
 load_dotenv("../injestion/config/.env")
-client = AzureOpenAI(
-    api_key=os.getenv("AZURE_OPENAI_API_KEY"),
-    api_version=os.getenv("AZURE_OPENAI_API_VERSION"),
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
-)
-deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
+
+# Initialize OpenAI client with error handling
+try:
+    client = AzureOpenAI(
+        api_key=os.getenv("AZURE_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY"),
+        api_version=os.getenv("AZURE_OPENAI_API_VERSION") or os.getenv("OPENAI_API_VERSION", "2024-02-15-preview"),
+        azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT") or os.getenv("OPENAI_ENDPOINT")
+    )
+    deployment = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME") or os.getenv("OPENAI_DEPLOYMENT_NAME")
+except Exception as e:
+    print(f"Warning: Failed to initialize OpenAI client: {e}")
+    client = None
+    deployment = None
 
 # Helper functions for embeddings and similarity
 def get_openai_embedding(text, timeout=15):
     """Get embeddings using Azure OpenAI's text-embedding model with context window truncation and timeout."""
+    if client is None:
+        raise Exception("OpenAI client not initialized. Check your API credentials.")
+    
     # Truncate text to fit within model context window (e.g., 8000 tokens for text-embedding-3-small)
     max_tokens = 8000
-    encoding = tiktoken.encoding_for_model("text-embedding-3-small")
-    tokens = encoding.encode(text)
-    if len(tokens) > max_tokens:
-        tokens = tokens[:max_tokens]
-        text = encoding.decode(tokens)
+    try:
+        encoding = tiktoken.get_encoding("cl100k_base")  # Use explicit encoding for text-embedding-3-small
+    except Exception:
+        # Fallback to a simple character-based truncation if tiktoken fails
+        if len(text) > max_tokens * 4:  # Rough approximation: 4 chars per token
+            text = text[:max_tokens * 4]
+    else:
+        tokens = encoding.encode(text)
+        if len(tokens) > max_tokens:
+            tokens = tokens[:max_tokens]
+            text = encoding.decode(tokens)
     def call():
         return client.embeddings.create(
             model="text-embedding-3-small",
@@ -51,9 +67,18 @@ def mongodb_vector_search_new_structure(query_text: str, top_k: int = 3, chat_hi
     from pymongo import MongoClient
     import logging
 
+    # Check if OpenAI client is initialized
+    if client is None:
+        return {
+            "answer": "OpenAI client not initialized. Please check your API credentials.",
+            "results": [],
+            "count": 0,
+            "search_method": "new_structure"
+        }
+
     # Load environment variables - use correct database name
     load_dotenv("../injestion/config/.env")
-    MONGO_URI = os.getenv("MONGO_URI").strip('"')
+    MONGO_URI = "mongodb+srv://jyothika:Jyothika%40123@cluster.ollkbh1.mongodb.net/?retryWrites=true&w=majority&appName=Cluster"
     DB_NAME = os.getenv("MONGO_DB_NAME", "rag_with_lambda")
     
     mongo_client = MongoClient(MONGO_URI)
@@ -249,17 +274,21 @@ Current Question: {query_text}
 
 Answer in detail based on the provided context. If this question relates to previous conversation, reference that context appropriately:"""
         
-        try:
-            answer = client.chat.completions.create(
-                model=deployment,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.2,
-                max_tokens=512,
-                timeout=30
-            ).choices[0].message.content.strip()
-        except Exception as e:
-            logging.error(f"OpenAI completion error: {e}")
-            answer = "Error generating answer from LLM."
+        # Check if OpenAI client is initialized
+        if client is None:
+            answer = "OpenAI client not initialized. Please check your API credentials."
+        else:
+            try:
+                answer = client.chat.completions.create(
+                    model=deployment,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.2,
+                    max_tokens=512,
+                    timeout=30
+                ).choices[0].message.content.strip()
+            except Exception as e:
+                logging.error(f"OpenAI completion error: {e}")
+                answer = "Error generating answer from LLM."
     else:
         answer = "No relevant documents found for your query."
     
@@ -341,17 +370,22 @@ def mongodb_vector_search(query_text: str, top_k: int = 3, chat_history: Optiona
             full_context += chat_context
             
         prompt = f"You are an expert assistant. Use the following context to answer the user's question. Consider both the relevant documents and the conversation history.\n\n{full_context}\n\nCurrent Question: {query_text}\n\nAnswer in detail:"
-        try:
-            answer = client.chat.completions.create(
-                model=deployment,
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.2,
-                max_tokens=256,
-                timeout=20
-            ).choices[0].message.content.strip()
-        except Exception as e:
-            logging.error(f"OpenAI completion error: {e}")
-            answer = "LLM completion error."
+        
+        # Check if OpenAI client is initialized
+        if client is None:
+            answer = "OpenAI client not initialized. Please check your API credentials."
+        else:
+            try:
+                answer = client.chat.completions.create(
+                    model=deployment,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.2,
+                    max_tokens=256,
+                    timeout=20
+                ).choices[0].message.content.strip()
+            except Exception as e:
+                logging.error(f"OpenAI completion error: {e}")
+                answer = "LLM completion error."
     else:
         answer = "No relevant document found."
     return {

@@ -115,6 +115,10 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Create API router with prefix
+from fastapi import APIRouter
+api_router = APIRouter()
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -123,6 +127,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Add a root redirect to /api/
+@app.get("/")
+async def redirect_to_api():
+    """Redirect root to API health endpoint"""
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/api/")
 
 # Pydantic models
 class SearchRequest(BaseModel):
@@ -397,7 +408,7 @@ def build_context_from_history(history: List[ChatMessage], current_query: str) -
 
 # API Endpoints
 
-@app.get("/", response_model=HealthResponse)
+@api_router.get("/", response_model=HealthResponse)
 async def root():
     """Health check endpoint"""
     redis_connected = True
@@ -412,7 +423,7 @@ async def root():
         timestamp=datetime.now()
     )
 
-@app.post("/search", response_model=SearchResponse)
+@api_router.post("/search", response_model=SearchResponse)
 async def search_documents(
     request: SearchRequest,
     redis_client=Depends(get_redis_client)
@@ -476,7 +487,7 @@ async def search_documents(
         logger.error(f"Search error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/chat-history/{session_id}", response_model=ChatHistoryResponse)
+@api_router.get("/chat-history/{session_id}", response_model=ChatHistoryResponse)
 async def get_session_history(
     session_id: str,
     redis_client=Depends(get_redis_client)
@@ -495,7 +506,7 @@ async def get_session_history(
         logger.error(f"Error getting chat history: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.delete("/chat-history/{session_id}")
+@api_router.delete("/chat-history/{session_id}")
 async def clear_session_history(
     session_id: str,
     redis_client=Depends(get_redis_client)
@@ -515,7 +526,7 @@ async def clear_session_history(
         logger.error(f"Error clearing chat history: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/sessions")
+@api_router.get("/sessions")
 async def list_active_sessions(
     redis_client=Depends(get_redis_client)
 ):
@@ -545,7 +556,7 @@ async def list_active_sessions(
         logger.error(f"Error listing sessions: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/search/similarity")
+@api_router.post("/search/similarity")
 async def calculate_similarity(
     query1: str,
     query2: str
@@ -575,7 +586,7 @@ async def calculate_similarity(
         logger.error(f"Similarity calculation error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/health/detailed")
+@api_router.get("/health/detailed")
 async def detailed_health_check(
     redis_client=Depends(get_redis_client)
 ):
@@ -631,7 +642,7 @@ async def detailed_health_check(
 
 # === Upload API Endpoints ===
 
-@app.get("/aws-health", response_model=AWSHealthResponse)
+@api_router.get("/aws-health", response_model=AWSHealthResponse)
 async def aws_health_check():
     """AWS services health check endpoint"""
     aws_connected = s3_client is not None and lambda_client is not None
@@ -661,7 +672,7 @@ async def aws_health_check():
         timestamp=datetime.now()
     )
 
-@app.post("/upload", response_model=UploadResponse)
+@api_router.post("/upload", response_model=UploadResponse)
 async def upload_pdf(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
@@ -738,7 +749,7 @@ async def upload_pdf(
         logger.error(f"Upload failed: {e}")
         raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
-@app.post("/trigger-lambda/{request_id}")
+@api_router.post("/trigger-lambda/{request_id}")
 async def trigger_lambda_for_upload(request_id: str):
     """Manually trigger Lambda processing for an uploaded file"""
     
@@ -776,7 +787,7 @@ async def trigger_lambda_for_upload(request_id: str):
         logger.error(f"Lambda trigger failed: {e}")
         raise HTTPException(status_code=500, detail=f"Lambda trigger failed: {str(e)}")
 
-@app.get("/status/{request_id}", response_model=ProcessingStatus)
+@api_router.get("/status/{request_id}", response_model=ProcessingStatus)
 async def get_processing_status(request_id: str):
     """Get processing status for a specific upload"""
     
@@ -785,7 +796,7 @@ async def get_processing_status(request_id: str):
     
     return upload_tracking[request_id]
 
-@app.get("/uploads")
+@api_router.get("/uploads")
 async def list_recent_uploads(limit: int = 20):
     """List recent uploads"""
     
@@ -810,7 +821,7 @@ async def list_recent_uploads(limit: int = 20):
         ]
     }
 
-@app.get("/lambda-logs/{execution_id}")
+@api_router.get("/lambda-logs/{execution_id}")
 async def get_lambda_logs(execution_id: str, lines: int = 50):
     """Get Lambda execution logs (if available)"""
     
@@ -879,7 +890,7 @@ async def get_lambda_logs(execution_id: str, lines: int = 50):
         logger.error(f"Failed to get logs: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get logs: {str(e)}")
 
-@app.delete("/cleanup")
+@api_router.delete("/cleanup")
 async def cleanup_old_uploads(days: int = 7):
     """Clean up upload tracking data older than specified days"""
     
@@ -899,7 +910,7 @@ async def cleanup_old_uploads(days: int = 7):
         "cutoff_date": cutoff_time
     }
 
-@app.get("/s3-files")
+@api_router.get("/s3-files")
 async def list_s3_files(prefix: str = "uploads/", limit: int = 20):
     """List files in S3 bucket"""
     
@@ -933,6 +944,9 @@ async def list_s3_files(prefix: str = "uploads/", limit: int = 20):
     except Exception as e:
         logger.error(f"Failed to list S3 files: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to list S3 files: {str(e)}")
+
+# Include the API router with /api prefix
+app.include_router(api_router, prefix="/api")
 
 if __name__ == "__main__":
     uvicorn.run(

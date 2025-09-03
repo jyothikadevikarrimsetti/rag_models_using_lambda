@@ -61,13 +61,13 @@ pip install -r requirements.txt
 python api_server.py
 ```
 
-The server will start on `http://localhost:8000`
+The server will start on `http://localhost:8000` with API endpoints available at `http://localhost:8000/api/`
 
 ## API Endpoints
 
 ### Search & Chat Endpoints
 
-#### POST `/search`
+#### POST `/api/search`
 Perform vector search with chat history context.
 
 **Request:**
@@ -91,18 +91,18 @@ Perform vector search with chat history context.
 }
 ```
 
-#### GET `/chat-history/{session_id}`
+#### GET `/api/chat-history/{session_id}`
 Retrieve chat history for a session.
 
-#### GET `/sessions`
+#### GET `/api/sessions`
 List all active sessions.
 
-#### DELETE `/clear-history/{session_id}`
+#### DELETE `/api/clear-history/{session_id}`
 Clear chat history for a session.
 
 ### Upload & Processing Endpoints
 
-#### POST `/upload`
+#### POST `/api/upload`
 Upload a PDF file to S3 and optionally trigger Lambda processing.
 
 **Parameters:**
@@ -122,7 +122,7 @@ Upload a PDF file to S3 and optionally trigger Lambda processing.
 }
 ```
 
-#### GET `/status/{request_id}`
+#### GET `/api/status/{request_id}`
 Get processing status for an uploaded file.
 
 **Response:**
@@ -142,30 +142,33 @@ Get processing status for an uploaded file.
 }
 ```
 
-#### POST `/trigger-lambda/{request_id}`
+#### POST `/api/trigger-lambda/{request_id}`
 Manually trigger Lambda processing for an uploaded file.
 
-#### GET `/uploads`
+#### GET `/api/uploads`
 List recent uploads with their status.
 
-#### GET `/lambda-logs/{execution_id}`
+#### GET `/api/lambda-logs/{execution_id}`
 Get Lambda execution logs.
 
-#### GET `/s3-files`
+#### GET `/api/s3-files`
 List files in the S3 bucket.
 
-#### DELETE `/cleanup`
+#### DELETE `/api/cleanup`
 Clean up old upload tracking data.
 
 ### Health & Monitoring
 
 #### GET `/`
+Redirect to API health endpoint.
+
+#### GET `/api/`
 Basic health check.
 
-#### GET `/aws-health`
+#### GET `/api/aws-health`
 AWS services health check.
 
-#### GET `/health/detailed`
+#### GET `/api/health/detailed`
 Comprehensive health check including all services.
 
 ## Usage Examples
@@ -176,13 +179,13 @@ Comprehensive health check including all services.
 import requests
 
 # Start a conversation
-response = requests.post("http://localhost:8000/search", json={
+response = requests.post("http://localhost:8000/api/search", json={
     "query": "What is artificial intelligence?",
     "session_id": "my_session"
 })
 
 # Continue the conversation
-response = requests.post("http://localhost:8000/search", json={
+response = requests.post("http://localhost:8000/api/search", json={
     "query": "How is it different from machine learning?",
     "session_id": "my_session"  # Same session for context
 })
@@ -196,7 +199,7 @@ import requests
 # Upload PDF
 with open("document.pdf", "rb") as f:
     response = requests.post(
-        "http://localhost:8000/upload",
+        "http://localhost:8000/api/upload",
         files={"file": f},
         params={"process_immediately": True}
     )
@@ -205,7 +208,7 @@ upload_result = response.json()
 request_id = upload_result["request_id"]
 
 # Check processing status
-status_response = requests.get(f"http://localhost:8000/status/{request_id}")
+status_response = requests.get(f"http://localhost:8000/api/status/{request_id}")
 status = status_response.json()
 
 print(f"Status: {status['status']}")

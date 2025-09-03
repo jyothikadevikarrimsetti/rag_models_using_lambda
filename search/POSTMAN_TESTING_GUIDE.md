@@ -5,7 +5,7 @@ This guide provides step-by-step instructions for testing the unified API using 
 ## 🚀 Getting Started
 
 ### 1. Base URL Configuration
-- **Base URL**: `http://localhost:8000`
+- **Base URL**: `http://localhost:8000/api`
 - Create a Postman Environment with this variable for easy switching
 
 ### 2. Server Status Check
@@ -16,7 +16,7 @@ First, ensure your server is running by testing the health endpoint.
 ### Environment Variables
 Create a Postman environment with these variables:
 ```
-BASE_URL = http://localhost:8000
+BASE_URL = http://localhost:8000/api
 SESSION_ID = test_session_{{$timestamp}}
 REQUEST_ID = (will be set from upload response)
 ```

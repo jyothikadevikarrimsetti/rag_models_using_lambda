@@ -16,6 +16,7 @@ cd "C:\New folder (5)\lambda\search"
 uvicorn api_server:app --host 0.0.0.0 --port 8000
 ```
 ✅ Server should be running on http://localhost:8000
+✅ API endpoints available at http://localhost:8000/api/
 
 ### 3. Test Basic Functionality (in order)
 

@@ -6,11 +6,12 @@ pydantic==2.5.0
 python-dotenv==1.0.0
 requests==2.31.0
 
-# Existing search pipeline dependencies
+# Existing search pipeline dependencies with updated versions
 numpy==1.24.3
-openai==1.3.0
+openai>=1.12.0
 tiktoken==0.5.1
 pymongo==4.6.0
+httpx>=0.24.0,<0.28.0
 
 # Additional utilities
 python-multipart==0.0.6
