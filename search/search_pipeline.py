@@ -242,8 +242,8 @@ def mongodb_vector_search_new_structure(query_text: str, top_k: int = 3, chat_hi
         # Build chat history context if available
         chat_context = ""
         if chat_history and len(chat_history) > 0:
-            # Get recent conversation context (last 3 exchanges)
-            recent_messages = chat_history[-6:]  # Last 3 user-assistant pairs
+            # Get recent conversation context (last 5 exchanges)
+            recent_messages = chat_history[-10:]  # Last 5 user-assistant pairs
             chat_exchanges = []
             
             for i in range(0, len(recent_messages), 2):
@@ -258,7 +258,7 @@ def mongodb_vector_search_new_structure(query_text: str, top_k: int = 3, chat_hi
                         )
             
             if chat_exchanges:
-                chat_context = f"\n\nConversation History:\n" + "\n\n".join(chat_exchanges[-2:])  # Last 2 exchanges
+                chat_context = f"\n\nConversation History:\n" + "\n\n".join(chat_exchanges)  # Show all available exchanges
         
         # Combine contexts
         full_context = f"Relevant Documents:\n{document_context}"
@@ -347,7 +347,7 @@ def mongodb_vector_search(query_text: str, top_k: int = 3, chat_history: Optiona
         # Build chat history context if available
         chat_context = ""
         if chat_history and len(chat_history) > 0:
-            recent_messages = chat_history[-6:]  # Last 3 user-assistant pairs
+            recent_messages = chat_history[-10:]  # Last 5 user-assistant pairs
             chat_exchanges = []
             
             for i in range(0, len(recent_messages), 2):
@@ -362,7 +362,7 @@ def mongodb_vector_search(query_text: str, top_k: int = 3, chat_history: Optiona
                         )
             
             if chat_exchanges:
-                chat_context = f"\n\nConversation History:\n" + "\n\n".join(chat_exchanges[-2:])
+                chat_context = f"\n\nConversation History:\n" + "\n\n".join(chat_exchanges)  # Show all available exchanges
         
         # Combine contexts
         full_context = f"Relevant Documents:\n{document_context}"
