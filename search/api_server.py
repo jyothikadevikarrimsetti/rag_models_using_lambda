@@ -945,6 +945,247 @@ async def list_s3_files(prefix: str = "uploads/", limit: int = 20):
         logger.error(f"Failed to list S3 files: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to list S3 files: {str(e)}")
 
+# Validation endpoints
+class ValidationRequest(BaseModel):
+    query: str = Field(..., description="Original search query")
+    response: str = Field(..., description="Generated response to validate")
+    session_id: Optional[str] = Field(default=None, description="Session ID for context")
+
+class ValidationResponse(BaseModel):
+    validation_id: str = Field(..., description="Unique validation ID")
+    query: str = Field(..., description="Original query")
+    is_valid: bool = Field(..., description="Overall validation result")
+    quality_score: float = Field(..., description="Quality score (0-1)")
+    validation_details: Dict[str, Any] = Field(..., description="Detailed validation results")
+    timestamp: str = Field(..., description="Validation timestamp")
+
+class FeedbackRequest(BaseModel):
+    validation_id: Optional[str] = Field(default=None, description="Validation ID to provide feedback for")
+    query: str = Field(..., description="Original query")
+    response: str = Field(..., description="Generated response")
+    user_rating: int = Field(..., ge=1, le=5, description="User rating (1-5)")
+    feedback_text: Optional[str] = Field(default=None, description="Optional feedback text")
+    session_id: Optional[str] = Field(default=None, description="Session ID")
+
+@api_router.post("/validate", response_model=ValidationResponse)
+async def validate_response_endpoint(request: ValidationRequest):
+    """
+    Validate a generated response against its source query and documents.
+    """
+    try:
+        # Import validation function
+        try:
+            from response_validator_simple import validate_response
+        except ImportError:
+            from response_validator import validate_response
+        
+        # Get the search results for the query to use as source documents
+        search_result = mongodb_vector_search_new_structure(
+            query_text=request.query,
+            top_k=5,
+            chat_history=[]
+        )
+        
+        # Perform validation
+        validation_result = validate_response(
+            request.query,
+            request.response,
+            search_result.get("results", [])
+        )
+        
+        # Generate validation ID
+        validation_id = f"val_{int(time.time())}_{uuid.uuid4().hex[:8]}"
+        
+        # Store validation result in Redis for potential feedback
+        validation_data = {
+            "validation_id": validation_id,
+            "query": request.query,
+            "response": request.response,
+            "validation_result": validation_result,
+            "session_id": request.session_id,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        try:
+            redis_client.setex(
+                f"validation:{validation_id}",
+                86400,  # 24 hours
+                json.dumps(validation_data)
+            )
+        except Exception as e:
+            logger.warning(f"Failed to store validation result: {e}")
+        
+        # Extract key metrics
+        overall_quality = validation_result.get("overall_quality", {})
+        quality_score = overall_quality.get("score", 0.0)
+        is_valid = overall_quality.get("is_high_quality", False)
+        
+        return ValidationResponse(
+            validation_id=validation_id,
+            query=request.query,
+            is_valid=is_valid,
+            quality_score=quality_score,
+            validation_details=validation_result,
+            timestamp=validation_data["timestamp"]
+        )
+        
+    except ImportError:
+        raise HTTPException(
+            status_code=503,
+            detail="Validation service not available. Please ensure response_validator module is installed."
+        )
+    except Exception as e:
+        logger.error(f"Validation error: {e}")
+        raise HTTPException(status_code=500, detail=f"Validation failed: {str(e)}")
+
+@api_router.post("/feedback")
+async def submit_feedback(request: FeedbackRequest):
+    """
+    Submit feedback for a response to improve the system.
+    """
+    try:
+        feedback_id = f"feedback_{int(time.time())}_{uuid.uuid4().hex[:8]}"
+        
+        feedback_data = {
+            "feedback_id": feedback_id,
+            "validation_id": request.validation_id,
+            "query": request.query,
+            "response": request.response,
+            "user_rating": request.user_rating,
+            "feedback_text": request.feedback_text,
+            "session_id": request.session_id,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        # Store feedback in Redis
+        redis_client.setex(
+            f"feedback:{feedback_id}",
+            2592000,  # 30 days
+            json.dumps(feedback_data)
+        )
+        
+        # If validation ID provided, update the validation record
+        if request.validation_id:
+            try:
+                validation_key = f"validation:{request.validation_id}"
+                validation_data = redis_client.get(validation_key)
+                if validation_data:
+                    validation_obj = json.loads(validation_data)
+                    validation_obj["user_feedback"] = {
+                        "rating": request.user_rating,
+                        "text": request.feedback_text,
+                        "feedback_id": feedback_id
+                    }
+                    redis_client.setex(validation_key, 86400, json.dumps(validation_obj))
+            except Exception as e:
+                logger.warning(f"Failed to update validation record: {e}")
+        
+        return {
+            "feedback_id": feedback_id,
+            "message": "Feedback submitted successfully",
+            "timestamp": feedback_data["timestamp"]
+        }
+        
+    except Exception as e:
+        logger.error(f"Feedback submission error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to submit feedback: {str(e)}")
+
+@api_router.get("/validation-stats")
+async def get_validation_stats():
+    """
+    Get validation statistics and quality metrics.
+    """
+    try:
+        # Get recent validation results with error handling
+        validation_keys = []
+        feedback_keys = []
+        
+        try:
+            # Use a safer approach to scan Redis keys
+            cursor = 0
+            while True:
+                cursor, keys = redis_client.scan(cursor=cursor, match="validation:*", count=20)
+                validation_keys.extend([key.decode('utf-8') if isinstance(key, bytes) else key for key in keys])
+                if cursor == 0:
+                    break
+                if len(validation_keys) >= 100:  # Limit to prevent too many keys
+                    break
+        except Exception as e:
+            logger.warning(f"Error scanning validation keys: {e}")
+        
+        try:
+            cursor = 0
+            while True:
+                cursor, keys = redis_client.scan(cursor=cursor, match="feedback:*", count=20)
+                feedback_keys.extend([key.decode('utf-8') if isinstance(key, bytes) else key for key in keys])
+                if cursor == 0:
+                    break
+                if len(feedback_keys) >= 100:  # Limit to prevent too many keys
+                    break
+        except Exception as e:
+            logger.warning(f"Error scanning feedback keys: {e}")
+        
+        # Analyze validation results
+        total_validations = len(validation_keys)
+        high_quality_count = 0
+        total_quality_score = 0.0
+        analyzed_count = 0
+        
+        for key in validation_keys[:50]:  # Analyze last 50
+            try:
+                data_str = redis_client.get(key)
+                if data_str:
+                    if isinstance(data_str, bytes):
+                        data_str = data_str.decode('utf-8')
+                    data = json.loads(data_str)
+                    validation_result = data.get("validation_result", {})
+                    overall_quality = validation_result.get("overall_quality", {})
+                    
+                    if overall_quality.get("is_high_quality", False):
+                        high_quality_count += 1
+                    
+                    total_quality_score += overall_quality.get("score", 0.0)
+                    analyzed_count += 1
+            except Exception as e:
+                logger.warning(f"Error processing validation key {key}: {e}")
+                continue
+        
+        # Analyze feedback
+        total_feedback = len(feedback_keys)
+        rating_sum = 0
+        rating_count = 0
+        
+        for key in feedback_keys[:50]:  # Analyze last 50
+            try:
+                data_str = redis_client.get(key)
+                if data_str:
+                    if isinstance(data_str, bytes):
+                        data_str = data_str.decode('utf-8')
+                    data = json.loads(data_str)
+                    rating = data.get("user_rating", 0)
+                    if rating > 0:
+                        rating_sum += rating
+                        rating_count += 1
+            except Exception as e:
+                logger.warning(f"Error processing feedback key {key}: {e}")
+                continue
+        
+        stats = {
+            "total_validations": total_validations,
+            "analyzed_validations": analyzed_count,
+            "high_quality_rate": high_quality_count / max(1, analyzed_count),
+            "average_quality_score": total_quality_score / max(1, analyzed_count),
+            "total_feedback": total_feedback,
+            "average_user_rating": rating_sum / max(1, rating_count),
+            "last_updated": datetime.now().isoformat()
+        }
+        
+        return stats
+        
+    except Exception as e:
+        logger.error(f"Failed to get validation stats: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get validation stats: {str(e)}")
+
 # Include the API router with /api prefix
 app.include_router(api_router, prefix="/api")
 

@@ -28,6 +28,20 @@ except Exception as e:
     client = None
     deployment = None
 
+# Import response validator
+try:
+    from response_validator_simple import validate_response
+    VALIDATION_ENABLED = True
+except ImportError:
+    try:
+        from response_validator import validate_response
+        VALIDATION_ENABLED = True
+    except ImportError:
+        print("Warning: Response validator not available. Validation features disabled.")
+        VALIDATION_ENABLED = False
+        def validate_response(*args, **kwargs):
+            return {"error": "Validation not available"}
+
 # Helper functions for embeddings and similarity
 def get_openai_embedding(text, timeout=15):
     """Get embeddings using Azure OpenAI's text-embedding model with context window truncation and timeout."""
@@ -292,12 +306,27 @@ Answer in detail based on the provided context. If this question relates to prev
     else:
         answer = "No relevant documents found for your query."
     
-    return {
+    # Add response validation
+    validation_result = None
+    if VALIDATION_ENABLED and docs and answer != "No relevant documents found for your query.":
+        try:
+            validation_result = validate_response(query_text, answer, docs)
+        except Exception as e:
+            logging.warning(f"Response validation failed: {e}")
+            validation_result = {"error": f"Validation failed: {str(e)}"}
+    
+    response = {
         "answer": answer,
         "results": docs,
         "count": len(docs),
         "search_method": "new_structure"
     }
+    
+    # Include validation results if available
+    if validation_result:
+        response["validation"] = validation_result
+    
+    return response
 
 
 def mongodb_vector_search(query_text: str, top_k: int = 3, chat_history: Optional[List[Dict]] = None) -> dict:
