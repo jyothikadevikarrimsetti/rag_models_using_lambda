@@ -245,12 +245,13 @@ def mongodb_vector_search_new_structure(query_text: str, top_k: int = 3, chat_hi
 
     # Prepare context for LLM answer
     if docs:
-        # Build document context
+        # Build enhanced document context with more details
         document_context = "\n\n".join([
-            f"Document: {doc['filename']}\n"
-            f"Summary: {doc['summary']}\n"
-            f"Content: {doc['chunk_text'][:300]}..." 
-            for doc in docs[:3]  # Use top 3 results
+            f"SOURCE {i+1}: {doc['filename']}\n"
+            f"SUMMARY: {doc['summary']}\n"
+            f"CONTENT: {doc['chunk_text']}\n"
+            f"RELEVANCE SCORE: {doc.get('score', 0):.3f}" 
+            for i, doc in enumerate(docs[:3])  # Use top 3 results
         ])
         
         # Build chat history context if available
@@ -279,14 +280,20 @@ def mongodb_vector_search_new_structure(query_text: str, top_k: int = 3, chat_hi
         if chat_context:
             full_context += chat_context
         
-        prompt = f"""You are an expert assistant. Use the following context to answer the user's question. 
-Consider both the relevant documents and the conversation history to provide a comprehensive answer.
+        prompt = f"""You are a careful assistant that answers ONLY using the provided context. If an answer is not fully supported, say you don't have enough information. Cite like [S].
+USER:
+Question: {query_text}
 
-{full_context}
+CONTEXT:
+{ full_context }
 
-Current Question: {query_text}
+RESPONSE RULES:
 
-Answer in detail based on the provided context. If this question relates to previous conversation, reference that context appropriately:"""
+Direct answer first, with inline [S] after supported sentences.
+
+If insufficient evidence, say so and list what to retrieve next.
+
+Keep it concise; use bullets when listing requirements/specs."""
         
         # Check if OpenAI client is initialized
         if client is None:
@@ -398,7 +405,21 @@ def mongodb_vector_search(query_text: str, top_k: int = 3, chat_history: Optiona
         if chat_context:
             full_context += chat_context
             
-        prompt = f"You are an expert assistant. Use the following context to answer the user's question. Consider both the relevant documents and the conversation history.\n\n{full_context}\n\nCurrent Question: {query_text}\n\nAnswer in detail:"
+        prompt = f"""You are an expert assistant. Answer the user's question using ONLY the information provided in the context below. Do not add information from your general knowledge.
+
+CONTEXT DOCUMENTS:
+{full_context}
+
+USER QUESTION: {query_text}
+
+INSTRUCTIONS:
+1. Base your answer strictly on the provided context
+2. Quote directly from the documents when possible  
+3. If the context doesn't contain enough information, say so clearly
+4. Include specific references to the source material
+5. If this relates to previous conversation, reference that context appropriately
+
+ANSWER:"""
         
         # Check if OpenAI client is initialized
         if client is None:

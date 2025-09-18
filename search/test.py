@@ -18,6 +18,6 @@ def get_openai_embedding(text):
     return response.data[0].embedding
 
 if __name__ == "__main__":
-    text = "education of jimson"
+    text = "what is this agreement about"
     embedding = get_openai_embedding(text)
     print(embedding)

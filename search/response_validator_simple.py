@@ -74,20 +74,33 @@ class SimpleResponseValidator:
             combined_source = " ".join(source_content)
             source_words = set(re.findall(r'\b\w{3,}\b', combined_source))
             
-            # Calculate overlap
+            # Calculate overlap with improved analysis
             if not response_words:
                 overlap_ratio = 0.0
+                overlapping_words = set()
+                non_overlapping = set()
             else:
                 overlapping_words = response_words.intersection(source_words)
+                non_overlapping = response_words - source_words
                 overlap_ratio = len(overlapping_words) / len(response_words)
             
             is_grounded = overlap_ratio >= threshold
+            
+            # Provide improvement suggestions
+            suggestions = []
+            if overlap_ratio < 0.5:
+                suggestions.append("Response contains many terms not found in source documents")
+                suggestions.append("Consider using more direct quotes from the source material")
+            if len(non_overlapping) > 10:
+                suggestions.append("Too many new terms introduced - stick closer to source content")
             
             return {
                 "is_grounded": is_grounded,
                 "confidence": float(overlap_ratio),
                 "grounding_ratio": float(overlap_ratio),
-                "overlapping_terms": len(response_words.intersection(source_words)) if response_words else 0,
+                "overlapping_terms": len(overlapping_words),
+                "non_overlapping_terms": len(non_overlapping),
+                "improvement_suggestions": suggestions,
                 "total_response_terms": len(response_words),
                 "method": "simple_text_overlap"
             }
